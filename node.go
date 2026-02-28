@@ -13,6 +13,13 @@ import (
 // Option 定义了一个函数类型，用于配置 Node 实例。
 type Option func(*Node) error
 
+func WithLogger(logger *slog.Logger) Option {
+	return func(n *Node) error {
+		n.logger = logger
+		return nil
+	}
+}
+
 // WithConnect 返回一个 Option 函数，用于设置 Redis 连接。
 func WithConnect(connect *redis.Client) Option {
 	return func(n *Node) error {
@@ -66,9 +73,19 @@ func WithNomalCallback(fn func(ctx context.Context)) Option {
 	}
 }
 
+// WithExitCallback 返回一个 Option 函数，用于设置节点退出回调函数。
+// fn 用于在节点退出时执行的逻辑，默认值为空。
+func WithExitCallback(fn func(ctx context.Context)) Option {
+	return func(n *Node) error {
+		n.exitCallback = fn
+		return nil
+	}
+}
+
 // Node 表示一个分布式锁节点，用于实现主从选举和锁续约。
 type Node struct {
-	Id string
+	Id     string
+	logger *slog.Logger
 
 	key string
 	ttl time.Duration
@@ -80,6 +97,7 @@ type Node struct {
 
 	masterCallback func(ctx context.Context)
 	nomalCallback  func(ctx context.Context)
+	exitCallback   func(ctx context.Context)
 }
 
 // New 创建一个新的 Node 实例。
@@ -87,6 +105,7 @@ type Node struct {
 // opts: 可选配置函数，用于设置 Redis 连接、ID、键名和 TTL。
 func New(ctx context.Context, opts ...Option) (*Node, error) {
 	ctx, cancel := context.WithCancel(ctx)
+
 	n := &Node{
 		Id:  uuid.New().String(),
 		key: "rkeeper:lock",
@@ -101,6 +120,8 @@ func New(ctx context.Context, opts ...Option) (*Node, error) {
 	if n.r == nil {
 		return nil, ErrRedisConnectIsNil
 	}
+
+	n.logger = n.logger.With(slog.String("node_id", n.Id))
 
 	loadFSM(n)
 	return n, nil
@@ -130,31 +151,56 @@ func (n *Node) Start() {
 	for {
 		select {
 		case <-n.ctx.Done():
+			n.logger.InfoContext(n.ctx, "node stopped")
+			if n.exitCallback != nil {
+				n.exitCallback(n.ctx)
+			}
 			return
 		default:
 			select {
 			case <-ticker.C:
-				// 如果当前节点是主节点，则尝试续约锁，否则尝试获取锁。
-				if n.Status() == StateMaster {
-					// 如果续约成功，则触发 EventRenewSuccess 事件，否则触发 EventRenewDefeat 事件。
+				switch n.Status() {
+				case StateMaster:
+					// 尝试续约锁
 					if n.renew() {
-						n.fsm.Event(n.ctx, EventRenewSuccess)
-						slog.InfoContext(n.ctx, "renew success")
-					} else {
-						n.fsm.Event(n.ctx, EventRenewDefeat)
-						slog.InfoContext(n.ctx, "renew defeat")
+						// 续约成功，保持主节点状态
+						if err := n.fsm.Event(n.ctx, EventRenewSuccess); err != nil {
+							n.logger.With(slog.String("status", n.Status())).
+								ErrorContext(n.ctx, "renew event error: %v", slog.Any("err", err))
+							continue
+						}
+						n.logger.With(slog.String("status", n.Status())).InfoContext(n.ctx, "renew success")
+						continue
 					}
-				} else {
-					// 如果获取成功，则触发 EventElectoralSuccess 事件，否则触发 EventElectoralDefeat 事件。
+					// 续约失败，进入普通节点状态
+					if err := n.fsm.Event(n.ctx, EventRenewDefeat); err != nil {
+						n.logger.With(slog.String("status", n.Status())).
+							ErrorContext(n.ctx, "renew defeat event error: %v", slog.Any("err", err))
+						continue
+					}
+					n.logger.With(slog.String("status", n.Status())).InfoContext(n.ctx, "renew defeat")
+				case StateNomal:
+					// 尝试获取锁
 					if n.tryAcquire() {
-						n.fsm.Event(n.ctx, EventElectoralSuccess)
-						slog.InfoContext(n.ctx, "electoral success")
-					} else {
-						n.fsm.Event(n.ctx, EventElectoralDefeat)
-						slog.InfoContext(n.ctx, "electoral defeat")
+						// 获取成功，进入主节点状态
+						if err := n.fsm.Event(n.ctx, EventElectoralSuccess); err != nil {
+							n.logger.With(slog.String("status", n.Status())).
+								ErrorContext(n.ctx, "electoral success event error: %v", slog.Any("err", err))
+							continue
+						}
+						n.logger.With(slog.String("status", n.Status())).InfoContext(n.ctx, "electoral success")
+						continue
 					}
+					// 获取失败，保持普通节点状态
+					if err := n.fsm.Event(n.ctx, EventElectoralDefeat); err != nil {
+						n.logger.With(slog.String("status", n.Status())).
+							ErrorContext(n.ctx, "electoral defeat event error: %v", slog.Any("err", err))
+						continue
+					}
+					n.logger.With(slog.String("status", n.Status())).InfoContext(n.ctx, "electoral defeat")
 				}
 			default:
+				n.logger.With(slog.String("status", n.Status())).WarnContext(n.ctx, "unexpected node status")
 			}
 		}
 	}
@@ -176,7 +222,8 @@ func (n *Node) renew() bool {
 	expire := n.ttl / time.Millisecond
 	result, err := n.r.Eval(n.ctx, renewScript, []string{n.key}, n.Id, expire).Result()
 	if err != nil {
-		slog.ErrorContext(n.ctx, "renew error: %v", slog.Any("err", err))
+		n.logger.With(slog.String("status", n.Status())).
+			ErrorContext(n.ctx, "renew error: %v", slog.Any("err", err))
 		return false
 	}
 	resultInt, ok := result.(int64)
@@ -191,6 +238,8 @@ func (n *Node) renew() bool {
 func (n *Node) tryAcquire() bool {
 	ok, err := n.r.SetNX(n.ctx, n.key, n.Id, n.ttl).Result()
 	if err != nil {
+		n.logger.With(slog.String("status", n.Status())).
+			ErrorContext(n.ctx, "try acquire error: %v", slog.Any("err", err))
 		return false
 	}
 	return ok
@@ -198,7 +247,8 @@ func (n *Node) tryAcquire() bool {
 
 // enterMaster 进入主节点状态的回调函数。
 func (n *Node) enterMaster(ctx context.Context, e *fsm.Event) {
-	slog.InfoContext(ctx, "enter master", slog.String("src", e.Src), slog.String("dst", e.Dst))
+	n.logger.With(slog.String("status", n.Status())).
+		InfoContext(ctx, "enter master", slog.String("src", e.Src), slog.String("dst", e.Dst))
 	if e.Src == StateMaster {
 		return
 	}

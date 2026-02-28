@@ -151,15 +151,31 @@ func TestNodeStart(t *testing.T) {
 		assert.NoError(t, mock.ExpectationsWereMet())
 	})
 
-	// 选举失败,从nomal切换到nomal,触发nomal回调
-	t.Run("ElectionFailureAndNomalCallbackTriggered", func(t *testing.T) {
+	// 选举失败,从nomal切换到nomal,不触发nomal回调
+	t.Run("ElectionFailureAndNomalCallbackNotTriggered", func(t *testing.T) {
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
+		var nomalCalled bool
+		var nomalCalledCount int
+		rdb, mock := redismock.NewClientMock()
+		n, err := New(ctx, WithConnect(rdb), WithTTL(100*time.Millisecond), WithNomalCallback(func(ctx context.Context) {
+			nomalCalledCount++
+			nomalCalled = true
+		}))
+		assert.NoError(t, err)
 
+		mock.ExpectSetNX(n.key, n.Id, n.ttl).SetVal(false)
+		go n.Start()
+
+		// 等待回调触发
+		time.Sleep(500 * time.Millisecond)
+		assert.False(t, nomalCalled)
+		assert.Equal(t, 0, nomalCalledCount)
+		assert.NoError(t, mock.ExpectationsWereMet())
 	})
 
-	// 触发nomal回调 从master切换到nomal
-	t.Run("NomalCallbackTriggered", func(t *testing.T) {
+	// 选举失败 从master切换到nomal 触发nomal回调
+	t.Run("ElectionFailureAndMasterCallbackTriggered", func(t *testing.T) {
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
 
