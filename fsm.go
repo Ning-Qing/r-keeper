@@ -5,20 +5,20 @@ import (
 )
 
 const (
-	// StateNomal 普通节点状态。
+	// StateNomal represents the normal node state. // 普通节点状态
 	StateNomal = "nomal"
-	// StateMaster 主节点状态。
+	// StateMaster represents the master node state. // 主节点状态
 	StateMaster = "master"
 )
 
 const (
-	// EventElectoralSuccess 选举成功。
+	// EventElectoralSuccess represents successful election. // 选举成功
 	EventElectoralSuccess = "electoral_success"
-	// EventElectoralDefeat 选举失败。
+	// EventElectoralDefeat represents failed election. // 选举失败
 	EventElectoralDefeat = "electoral_defeat"
-	// EventRenewSuccess 续约成功。
+	// EventRenewSuccess represents successful lock renewal. // 续约成功
 	EventRenewSuccess = "renew_success"
-	// EventRenewDefeat 续约失败。
+	// EventRenewDefeat represents failed lock renewal. // 续约失败
 	EventRenewDefeat = "renew_defeat"
 )
 
@@ -26,13 +26,13 @@ func loadFSM(node *Node) {
 	node.fsm = fsm.NewFSM(
 		StateNomal,
 		fsm.Events{
-			// EventElectoralSuccess 选举成功，进入主节点状态。
+			// EventElectoralSuccess: election success, enter master state. // 选举成功，进入主节点状态
 			{Name: EventElectoralSuccess, Src: []string{StateNomal}, Dst: StateMaster},
-			// EventElectoralDefeat 选举失败，进入普通节点状态。
+			// EventElectoralDefeat: election failure, enter normal state. // 选举失败，进入普通节点状态
 			{Name: EventElectoralDefeat, Src: []string{StateMaster, StateNomal}, Dst: StateNomal},
-			// EventRenewSuccess 续约成功，保持主节点状态。
+			// EventRenewSuccess: renewal success, keep master state. // 续约成功，保持主节点状态
 			{Name: EventRenewSuccess, Src: []string{StateMaster}, Dst: StateMaster},
-			// EventRenewDefeat 续约失败，进入普通节点状态。
+			// EventRenewDefeat: renewal failure, enter normal state. // 续约失败，进入普通节点状态
 			{Name: EventRenewDefeat, Src: []string{StateMaster}, Dst: StateNomal},
 		},
 		fsm.Callbacks{

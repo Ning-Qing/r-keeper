@@ -9,8 +9,8 @@ import (
 	"github.com/stretchr/testify/assert"
 )
 
-// TestNewNode 测试 Node 的构造函数 New。
-// 验证不同配置选项的正确性，包括 Redis 连接、ID、键名和 TTL。
+// TestNewNode tests the Node constructor New. // 测试 Node 的构造函数 New
+// Verify correctness of different configuration options, including Redis connection, ID, key name, and TTL. // 验证不同配置选项的正确性，包括 Redis 连接、ID、键名和 TTL
 func TestNewNode(t *testing.T) {
 	t.Run("WithValidOptions", func(t *testing.T) {
 		ctx := context.Background()
@@ -33,8 +33,8 @@ func TestNewNode(t *testing.T) {
 	})
 }
 
-// TestNodeStatus 测试 Node 的状态管理方法 Status。
-// 验证状态是否正确返回。
+// TestNodeStatus tests the Node status management method Status. // 测试 Node 的状态管理方法 Status
+// Verify that status is returned correctly. // 验证状态是否正确返回
 func TestNodeStatus(t *testing.T) {
 	t.Run("InitialStatus", func(t *testing.T) {
 		ctx := context.Background()
@@ -54,11 +54,11 @@ func TestNodeStatus(t *testing.T) {
 	})
 }
 
-// TestNodeStart 测试 Node 的主从选举和锁续约逻辑 Start。
-// 验证主从切换和回调函数的触发逻辑。
+// TestNodeStart tests the Node's master-slave election and lock renewal logic Start. // 测试 Node 的主从选举和锁续约逻辑 Start
+// Verify master-slave switching and callback function triggering logic. // 验证主从切换和回调函数的触发逻辑
 func TestNodeStart(t *testing.T) {
 
-	// 选举成功,从nomal切换到master
+	// Election success: switch from nomal to master // 选举成功,从nomal切换到master
 	t.Run("ElectionSuccess", func(t *testing.T) {
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
@@ -66,9 +66,9 @@ func TestNodeStart(t *testing.T) {
 		n, err := New(ctx, WithConnect(rdb), WithTTL(100*time.Millisecond))
 		assert.NoError(t, err)
 
-		// 模拟获取锁成功
+		// Mock successful lock acquisition // 模拟获取锁成功
 		mock.ExpectSetNX(n.key, n.Id, n.ttl).SetVal(true)
-		// 模拟续约成功
+		// Mock successful renewal // 模拟续约成功
 		mock.ExpectEval(renewScript, []string{n.key}, n.Id, n.ttl/time.Millisecond).SetVal(int64(1))
 
 		go n.Start()
@@ -77,7 +77,7 @@ func TestNodeStart(t *testing.T) {
 		assert.NoError(t, mock.ExpectationsWereMet())
 	})
 
-	// 选举失败,从nomal切换到nomal
+	// Election failure: stay in nomal state // 选举失败,从nomal切换到nomal
 	t.Run("ElectionFailure", func(t *testing.T) {
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
@@ -92,7 +92,7 @@ func TestNodeStart(t *testing.T) {
 		assert.NoError(t, mock.ExpectationsWereMet())
 	})
 
-	// 续约成功,从master切换到master
+	// Renewal success: stay in master state // 续约成功,从master切换到master
 	t.Run("RenewSuccess", func(t *testing.T) {
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
@@ -109,7 +109,7 @@ func TestNodeStart(t *testing.T) {
 		assert.NoError(t, mock.ExpectationsWereMet())
 	})
 
-	// 续约失败,从master切换到nomal
+	// Renewal failure: switch from master to nomal // 续约失败,从master切换到nomal
 	t.Run("RenewFailure", func(t *testing.T) {
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
@@ -126,7 +126,7 @@ func TestNodeStart(t *testing.T) {
 		assert.NoError(t, mock.ExpectationsWereMet())
 	})
 
-	// 选举成功,从nomal切换到master,触发master回调
+	// Election success: switch from nomal to master, trigger master callback // 选举成功,从nomal切换到master,触发master回调
 	t.Run("ElectionSuccessAndMasterCallbackTriggered", func(t *testing.T) {
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
@@ -144,14 +144,14 @@ func TestNodeStart(t *testing.T) {
 		mock.ExpectEval(renewScript, []string{n.key}, n.Id, n.ttl/time.Millisecond).SetVal(int64(1))
 		go n.Start()
 
-		// 等待回调触发
+		// Wait for callback to be triggered // 等待回调触发
 		time.Sleep(500 * time.Millisecond)
 		assert.True(t, masterCalled)
 		assert.Equal(t, 1, masterCalledCount)
 		assert.NoError(t, mock.ExpectationsWereMet())
 	})
 
-	// 选举失败,从nomal切换到nomal,不触发nomal回调
+	// Election failure: stay in nomal state, nomal callback not triggered // 选举失败,从nomal切换到nomal,不触发nomal回调
 	t.Run("ElectionFailureAndNomalCallbackNotTriggered", func(t *testing.T) {
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
@@ -167,14 +167,14 @@ func TestNodeStart(t *testing.T) {
 		mock.ExpectSetNX(n.key, n.Id, n.ttl).SetVal(false)
 		go n.Start()
 
-		// 等待回调触发
+		// Wait for callback to be triggered // 等待回调触发
 		time.Sleep(500 * time.Millisecond)
 		assert.False(t, nomalCalled)
 		assert.Equal(t, 0, nomalCalledCount)
 		assert.NoError(t, mock.ExpectationsWereMet())
 	})
 
-	// 选举失败 从master切换到nomal 触发nomal回调
+	// Election failure: switch from master to nomal, trigger nomal callback // 选举失败 从master切换到nomal 触发nomal回调
 	t.Run("ElectionFailureAndMasterCallbackTriggered", func(t *testing.T) {
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
@@ -188,12 +188,12 @@ func TestNodeStart(t *testing.T) {
 		}))
 		assert.NoError(t, err)
 
-		// 模拟获取锁失败
+		// Mock lock acquisition failure // 模拟获取锁失败
 		mock.ExpectSetNX(n.key, n.Id, n.ttl).SetVal(true)
 		mock.ExpectEval(renewScript, []string{n.key}, n.Id, n.ttl/time.Millisecond).SetVal(int64(0))
 		go n.Start()
 
-		// 等待回调触发
+		// Wait for callback to be triggered // 等待回调触发
 		time.Sleep(500 * time.Millisecond)
 		assert.True(t, nomalCalled)
 		assert.Equal(t, 1, nomalCalledCount)
@@ -201,8 +201,8 @@ func TestNodeStart(t *testing.T) {
 	})
 }
 
-// TestNodeRenew 测试 Node 的锁续约方法 renew。
-// 验证续约成功和失败的逻辑。
+// TestNodeRenew tests the Node's lock renewal method renew. // 测试 Node 的锁续约方法 renew
+// Verify renewal success and failure logic. // 验证续约成功和失败的逻辑
 func TestNodeRenew(t *testing.T) {
 	t.Run("RenewSuccess", func(t *testing.T) {
 		ctx := context.Background()
@@ -210,7 +210,7 @@ func TestNodeRenew(t *testing.T) {
 		n, err := New(ctx, WithConnect(rdb), WithKey("test-key"), WithTTL(time.Second))
 		assert.NoError(t, err)
 
-		// 模拟续约成功
+		// Mock successful renewal // 模拟续约成功
 		mock.ExpectEval(renewScript, []string{n.key}, n.Id, n.ttl/time.Millisecond).SetVal(int64(1))
 
 		assert.True(t, n.renew())
@@ -223,7 +223,7 @@ func TestNodeRenew(t *testing.T) {
 		n, err := New(ctx, WithConnect(rdb), WithKey("test-key"), WithTTL(time.Second))
 		assert.NoError(t, err)
 
-		// 模拟续约失败
+		// Mock renewal failure // 模拟续约失败
 		mock.ExpectEval(renewScript, []string{n.key}, n.Id, n.ttl/time.Millisecond).SetVal(int64(0))
 
 		assert.False(t, n.renew())
@@ -231,8 +231,8 @@ func TestNodeRenew(t *testing.T) {
 	})
 }
 
-// TestNodeTryAcquire 测试 Node 的锁获取方法 tryAcquire。
-// 验证获取成功和失败的逻辑。
+// TestNodeTryAcquire tests the Node's lock acquisition method tryAcquire. // 测试 Node 的锁获取方法 tryAcquire
+// Verify acquisition success and failure logic. // 验证获取成功和失败的逻辑
 func TestNodeTryAcquire(t *testing.T) {
 	t.Run("AcquireSuccess", func(t *testing.T) {
 		ctx := context.Background()
@@ -240,7 +240,7 @@ func TestNodeTryAcquire(t *testing.T) {
 		n, err := New(ctx, WithConnect(rdb), WithKey("test-key"), WithTTL(time.Second))
 		assert.NoError(t, err)
 
-		// 模拟获取锁成功
+		// Mock successful lock acquisition // 模拟获取锁成功
 		mock.ExpectSetNX(n.key, n.Id, n.ttl).SetVal(true)
 		assert.True(t, n.tryAcquire())
 		assert.NoError(t, mock.ExpectationsWereMet())
@@ -252,7 +252,7 @@ func TestNodeTryAcquire(t *testing.T) {
 		n, err := New(ctx, WithConnect(rdb), WithKey("test-key"), WithTTL(time.Second))
 		assert.NoError(t, err)
 
-		// 模拟获取锁失败
+		// Mock lock acquisition failure // 模拟获取锁失败
 		mock.ExpectSetNX(n.key, n.Id, n.ttl).SetVal(false)
 		assert.False(t, n.tryAcquire())
 		assert.NoError(t, mock.ExpectationsWereMet())
