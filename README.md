@@ -1,4 +1,5 @@
 # r-keeper
+[中文](https://github.com/Ning-Qing/r-keeper/edit/master/README_zh.md)
 
 A distributed lock and master-slave election library based on Redis, designed for node master-slave switching and lock renewal in distributed systems.
 
